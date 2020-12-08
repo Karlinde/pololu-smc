@@ -1,16 +1,37 @@
-use embedded_hal::blocking::i2c;
+//! This crate provides a driver for the Pololu Simple Motor Controller G2, for use on embedded hardware.
+//! 
+//! It uses traits from the [`embedded_hal`] crate in order to be independent from end user hardware. 
+//! Currently only the I<sup>2</sup>C protocol is implemented.
+#![warn(missing_docs)]
+use embedded_hal;
 
+/// Represents a single physical motor controller.
+/// 
+/// The type parameter `T` should be a type that implements the appropriate traits for the desired communications interface.
+///   * For I<sup>2</sup>C:
+///     - [`embedded_hal::blocking::i2c::Write`]
+///     - [`embedded_hal::blocking::i2c::WriteRead`]
 pub struct SimpleMotorController<T> {
-    bus: T,
-    address: u8,
+    interface: T,
+    device_number: u8,
 }
 
-
+/// Identifies the variables that can be read from the controller. 
+///
+/// Read using [`SimpleMotorController::get_variable`] 
 #[derive(Debug, Copy, Clone)]
 pub enum Variable {
+    /// Indicates the errors that are currently stopping the motor.
+    /// Returns a value of [`VariableValue::Errors`]
     ErrorStatus = 0,
+    /// Indicates which errors have occurred since last reading this variable.
+    /// Returns a value of [`VariableValue::Errors`]
     ErrorsOccurred = 1,
+    /// Indicates which serial errors have occurred since last reading this variable.
+    /// Returns a value of [`VariableValue::SerialErrors`]
     SerialErrorsOccurred = 2,
+    /// Indicates things that are currently limiting the motor controller.
+    /// Returns a value of [`VariableValue::Limits`]
     LimitStatus = 3,
 
     RC1UnlimitedRaw = 4,
@@ -54,6 +75,8 @@ pub enum Variable {
     CurrentLimitingConsecutiveCount = 45,
     CurrentLimitingOccurenceCount = 46,
 
+    /// Flags indicating the source of the last board reset.
+    /// Returns a value of [`VariableValue::ResetSource`]
     ResetFlags = 127,
 }
 
@@ -216,30 +239,30 @@ pub struct FirmwareVersion {
 }
 
 impl<T> SimpleMotorController<T> {
-    pub fn new(bus: T, address: u8) -> SimpleMotorController<T> {
-        SimpleMotorController { bus, address }
+    pub fn new(interface: T, device_number: u8) -> SimpleMotorController<T> {
+        SimpleMotorController { interface, device_number }
     }
 }
 impl<T> SimpleMotorController<T>
 where
-    T: i2c::Write,
+    T: embedded_hal::blocking::i2c::Write,
 {
     pub fn send_command(&mut self, cmd: Command) -> Result<(), T::Error> {
         let cmd_id = get_command_id(&cmd);
         match cmd {
             Command::ExitSafeStart => self
-                .bus
-                .write(self.address, &[cmd_id])?,
-            Command::MotorFwd { speed } => self.bus.write(
-                self.address,
+                .interface
+                .write(self.device_number, &[cmd_id])?,
+            Command::MotorFwd { speed } => self.interface.write(
+                self.device_number,
                 &[
                     cmd_id,
                     (speed % 32) as u8,
                     (speed / 32) as u8,
                 ],
             )?,
-            Command::MotorRev { speed } => self.bus.write(
-                self.address,
+            Command::MotorRev { speed } => self.interface.write(
+                self.device_number,
                 &[
                     cmd_id,
                     (speed % 32) as u8,
@@ -247,16 +270,16 @@ where
                 ],
             )?,
             Command::MotorFwd7bit { speed } => self
-                .bus
-                .write(self.address, &[cmd_id, speed])?,
+                .interface
+                .write(self.device_number, &[cmd_id, speed])?,
             Command::MotorRev7bit { speed } => self
-                .bus
-                .write(self.address, &[cmd_id, speed])?,
+                .interface
+                .write(self.device_number, &[cmd_id, speed])?,
             Command::MotorBrake { brake_amount } => self
-                .bus
-                .write(self.address, &[cmd_id, brake_amount])?,
-            Command::SetCurrentLimit { value } => self.bus.write(
-                self.address,
+                .interface
+                .write(self.device_number, &[cmd_id, brake_amount])?,
+            Command::SetCurrentLimit { value } => self.interface.write(
+                self.device_number,
                 &[
                     cmd_id,
                     (value % 128) as u8,
@@ -264,8 +287,8 @@ where
                 ],
             )?,
             Command::StopMotor => self
-                .bus
-                .write(self.address, &[cmd_id])?,
+                .interface
+                .write(self.device_number, &[cmd_id])?,
         };
         Ok(())
     }
@@ -273,12 +296,12 @@ where
 
 impl<T> SimpleMotorController<T>
 where
-    T: i2c::WriteRead,
+    T: embedded_hal::blocking::i2c::WriteRead,
 {
     pub fn get_variable(&mut self, variable: Variable) -> Result<VariableValue, T::Error> {
         let mut buf: [u8; 2] = [0, 0];
-        self.bus.write_read(
-            self.address,
+        self.interface.write_read(
+            self.device_number,
             &[0xa1, variable as u8],
             &mut buf,
         )?;
@@ -292,8 +315,8 @@ where
         value: u16,
     ) -> Result<MotorLimitResponse, T::Error> {
         let mut buf: [u8; 1] = [0];
-        self.bus.write_read(
-            self.address,
+        self.interface.write_read(
+            self.device_number,
             &[
                 0xa2,
                 limit as u8,
@@ -314,8 +337,8 @@ where
 
     pub fn get_firmware_version(&mut self) -> Result<FirmwareVersion, T::Error> {
         let mut buf: [u8; 4] = [0, 0, 0, 0];
-        self.bus.write_read(
-            self.address,
+        self.interface.write_read(
+            self.device_number,
             &[0xc2],
             &mut buf,
         )?;
