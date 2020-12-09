@@ -23,13 +23,13 @@
 //! # }
 //! # use pololu_smc::VariableValue;
 //! use pololu_smc::{SimpleMotorController, Variable, Command};
-//! 
+//!
 //! ...
-//! 
+//!
 //! # fn main() -> std::result::Result<(), Error> {
 //! # let mut interface = Test{};
 //! let mut controller = SimpleMotorController::new(interface, 0x12);
-//! 
+//!
 //! let errors = controller.get_variable(Variable::ErrorStatus)?;
 //! # match errors {
 //! #   VariableValue::Errors{safe_start_violation, required_channel_invalid, serial_error, command_timeout, limit_kill_switch, low_vin, high_vin, over_temperature, motor_driver_error, err_line_high} => {   
@@ -39,8 +39,8 @@
 //! #       assert_eq!(command_timeout, false);
 //! #       assert_eq!(limit_kill_switch, false);
 //! #       assert_eq!(low_vin, false);
-//! #       assert_eq!(high_vin, false); 
-//! #       assert_eq!(over_temperature, false); 
+//! #       assert_eq!(high_vin, false);
+//! #       assert_eq!(over_temperature, false);
 //! #       assert_eq!(motor_driver_error, false);
 //! #       assert_eq!(err_line_high, false);
 //! #   },
@@ -53,7 +53,6 @@
 //! # }
 //!```
 #![warn(missing_docs)]
-use embedded_hal;
 
 /// Represents a single physical motor controller.
 ///
@@ -354,7 +353,7 @@ fn get_command_id(cmd: &Command) -> u8 {
 ///
 /// These only contain the commands which do not provide any response, which can thus be used in [`SimpleMotorController::send_command`]. There are some additional commands available that <b>do</b> provide a response. These are handled
 /// separately by the methods [`SimpleMotorController::set_motor_limit`] and [`SimpleMotorController::get_firmware_version`].
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Command {
     /// If safe-start protection is enabled, this command is required before the motor can run.
     ExitSafeStart,
@@ -479,19 +478,14 @@ where
     pub fn send_command(&mut self, cmd: Command) -> Result<(), T::Error> {
         let cmd_id = get_command_id(&cmd);
         match cmd {
-            Command::ExitSafeStart => self.interface.write(self.device_number, &[cmd_id])?,
-            Command::MotorFwd { speed } => self.interface.write(
-                self.device_number,
-                &[cmd_id, (speed % 32) as u8, (speed / 32) as u8],
-            )?,
-            Command::MotorRev { speed } => self.interface.write(
-                self.device_number,
-                &[cmd_id, (speed % 32) as u8, (speed / 32) as u8],
-            )?,
-            Command::MotorFwd7bit { speed } => {
-                self.interface.write(self.device_number, &[cmd_id, speed])?
+            Command::ExitSafeStart | Command::StopMotor => {
+                self.interface.write(self.device_number, &[cmd_id])?
             }
-            Command::MotorRev7bit { speed } => {
+            Command::MotorFwd { speed } | Command::MotorRev { speed } => self.interface.write(
+                self.device_number,
+                &[cmd_id, (speed % 32) as u8, (speed / 32) as u8],
+            )?,
+            Command::MotorFwd7bit { speed } | Command::MotorRev7bit { speed } => {
                 self.interface.write(self.device_number, &[cmd_id, speed])?
             }
             Command::MotorBrake { brake_amount } => self
@@ -501,7 +495,6 @@ where
                 self.device_number,
                 &[cmd_id, (value % 128) as u8, (value / 128) as u8],
             )?,
-            Command::StopMotor => self.interface.write(self.device_number, &[cmd_id])?,
         };
         Ok(())
     }
@@ -518,7 +511,7 @@ where
         self.interface
             .write_read(self.device_number, &[0xa1, variable as u8], &mut buf)?;
 
-        return Ok(variable.get_value(buf[0] as u16 | (buf[1] as u16) << 8));
+        Ok(variable.get_value(buf[0] as u16 | (buf[1] as u16) << 8))
     }
 
     /// Sends a command to temporarily set a certain motor limit to some value, until the board is reset.
@@ -550,7 +543,7 @@ where
             .write_read(self.device_number, &[0xc2], &mut buf)?;
 
         Ok(FirmwareVersion {
-            product_id: (buf[0] as u16 + (buf[1] as u16) << 8),
+            product_id: buf[0] as u16 + ((buf[1] as u16) << 8),
             major_bcd: buf[2],
             minor_bcd: buf[3],
         })
