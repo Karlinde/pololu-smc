@@ -53,6 +53,7 @@
 //! # }
 //!```
 #![warn(missing_docs)]
+#![no_std]
 
 /// Represents a single physical motor controller.
 ///
@@ -70,7 +71,7 @@ pub struct SimpleMotorController<T> {
 /// Identifies the variables that can be read from the controller.
 ///
 /// Read using [`SimpleMotorController::get_variable`]
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Variable {
     /// Indicates the errors that are currently stopping the motor.
     /// Returns a value of [`VariableValue::Errors`]
@@ -170,7 +171,7 @@ pub enum Variable {
 }
 
 /// Reasons for why the controller board was reset
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum ResetSource {
     /// <span style="text-decoration:overline">RST</span> pin was pulled low by external source
     NRstPulledLow,
@@ -185,7 +186,7 @@ pub enum ResetSource {
 }
 
 /// The values that can be returned as the value for [`Variable::BrakeAmount`].
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum BrakeAmount {
     /// Motor is coasting.
     Coasting,
@@ -198,7 +199,7 @@ pub enum BrakeAmount {
 }
 
 /// Representations of the various types of values of the variables available to be read from the controller.
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum VariableValue {
     /// Error flags that are stopping the motor from running.
     ///
@@ -353,7 +354,7 @@ fn get_command_id(cmd: &Command) -> u8 {
 ///
 /// These only contain the commands which do not provide any response, which can thus be used in [`SimpleMotorController::send_command`]. There are some additional commands available that <b>do</b> provide a response. These are handled
 /// separately by the methods [`SimpleMotorController::set_motor_limit`] and [`SimpleMotorController::get_firmware_version`].
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Command {
     /// If safe-start protection is enabled, this command is required before the motor can run.
     ExitSafeStart,
@@ -395,6 +396,7 @@ pub enum Command {
 }
 
 /// All the various ways to configure a motor limit.
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum MotorLimit {
     /// Max speed, both forward and reverse.
     MaxSpeed = 0,
@@ -423,7 +425,7 @@ pub enum MotorLimit {
 }
 
 /// All the responses that the controller can provide after setting the motor limits.
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum MotorLimitResponse {
     /// No problems setting the limit.
     Ok,
@@ -441,7 +443,7 @@ pub enum MotorLimitResponse {
 ///
 /// Note that the raw version values in this struct are encoded using BCD (Binary Encoded Decimal).
 /// Use the [`FirmwareVersion::get_numerical_version_numbers`] method to get a tuple of real decimal version numbers.
-#[derive(Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct FirmwareVersion {
     /// The product id of this controller's version.
     pub product_id: u16,
