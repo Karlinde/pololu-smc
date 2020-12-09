@@ -466,7 +466,7 @@ impl FirmwareVersion {
 }
 
 impl<T> SimpleMotorController<T> {
-    /// Constructs a new controller using a specicic interface and device number.
+    /// Constructs a new controller using a specific interface and device number.
     pub fn new(interface: T, device_number: u8) -> SimpleMotorController<T> {
         SimpleMotorController {
             interface,
