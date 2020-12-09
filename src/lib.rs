@@ -63,7 +63,7 @@
 ///     - [`embedded_hal::blocking::i2c::WriteRead`]
 pub struct SimpleMotorController<T> {
     /// The [`embedded_hal`] interface to use for communication.
-    pub interface: T,
+    interface: T,
     /// The device number of this controller, in order to separate different controllers using the same bus.
     pub device_number: u8,
 }
@@ -273,83 +273,6 @@ pub enum VariableValue {
     I16(i16),
 }
 
-fn is_bit_set(byte: u16, bit: u8) -> bool {
-    byte & (1 << bit) != 0
-}
-
-impl Variable {
-    /// Converts a provided two-byte response from the controller into the proper value type for this variant.
-    pub fn get_value(&self, response: u16) -> VariableValue {
-        match self {
-            Variable::ErrorStatus | Variable::ErrorsOccurred => VariableValue::Errors {
-                safe_start_violation: is_bit_set(response, 0),
-                required_channel_invalid: is_bit_set(response, 1),
-                serial_error: is_bit_set(response, 2),
-                command_timeout: is_bit_set(response, 3),
-                limit_kill_switch: is_bit_set(response, 4),
-                low_vin: is_bit_set(response, 5),
-                high_vin: is_bit_set(response, 6),
-                over_temperature: is_bit_set(response, 7),
-                motor_driver_error: is_bit_set(response, 0),
-                err_line_high: is_bit_set(response, 1),
-            },
-            Variable::SerialErrorsOccurred => VariableValue::SerialErrors {
-                frame: is_bit_set(response, 1),
-                noise: is_bit_set(response, 2),
-                rx_overrun: is_bit_set(response, 3),
-                format: is_bit_set(response, 4),
-                crc: is_bit_set(response, 5),
-            },
-            Variable::LimitStatus => VariableValue::Limits {
-                motor_not_allowed_to_run: is_bit_set(response, 0),
-                temperature_reducing_speed: is_bit_set(response, 1),
-                max_speed: is_bit_set(response, 2),
-                below_starting_speed: is_bit_set(response, 3),
-                speed_limited_acc_dec_brakeduration: is_bit_set(response, 4),
-                rc1_killswitch_active: is_bit_set(response, 5),
-                rc2_killswitch_active: is_bit_set(response, 6),
-                an1_killswitch_active: is_bit_set(response, 7),
-                an2_killswitch_active: is_bit_set(response, 8),
-                usb_killswitch_active: is_bit_set(response, 9),
-            },
-            Variable::ResetFlags => match response {
-                0x04 => VariableValue::ResetSource(ResetSource::NRstPulledLow),
-                0x0c => VariableValue::ResetSource(ResetSource::PowerLow),
-                0x14 => VariableValue::ResetSource(ResetSource::SoftwareReset),
-                0x24 => VariableValue::ResetSource(ResetSource::WatchdogTimer),
-                _ => VariableValue::ResetSource(ResetSource::Unknown),
-            },
-            Variable::RC1Scaled
-            | Variable::RC2Scaled
-            | Variable::AN1Scaled
-            | Variable::AN2Scaled
-            | Variable::TargetSpeed
-            | Variable::Speed => VariableValue::I16(response as i16),
-            Variable::BrakeAmount => match response {
-                0 => VariableValue::BrakeAmount(BrakeAmount::Coasting),
-                32 => VariableValue::BrakeAmount(BrakeAmount::Braking),
-                0xff => VariableValue::BrakeAmount(BrakeAmount::NotAvailable),
-                _ => VariableValue::BrakeAmount(BrakeAmount::Unknown),
-            },
-            _ => VariableValue::U16(response),
-        }
-    }
-}
-
-#[allow(unused_variables)]
-fn get_command_id(cmd: &Command) -> u8 {
-    match cmd {
-        Command::ExitSafeStart => 0x83,
-        Command::MotorFwd { speed } => 0x85,
-        Command::MotorRev { speed } => 0x86,
-        Command::MotorFwd7bit { speed } => 0x89,
-        Command::MotorRev7bit { speed } => 0x8a,
-        Command::MotorBrake { brake_amount } => 0x92,
-        Command::SetCurrentLimit { value } => 0x91,
-        Command::StopMotor => 0xE0,
-    }
-}
-
 /// Representations of the commands that can be sent to the controller.
 ///
 /// These only contain the commands which do not provide any response, which can thus be used in [`SimpleMotorController::send_command`]. There are some additional commands available that <b>do</b> provide a response. These are handled
@@ -453,6 +376,85 @@ pub struct FirmwareVersion {
     pub major_bcd: u8,
 }
 
+fn is_bit_set(byte: u16, bit: u8) -> bool {
+    byte & (1 << bit) != 0
+}
+
+impl Variable {
+    /// Converts a provided two-byte response from the controller into the proper value type for this variant.
+    pub fn get_value(&self, response: u16) -> VariableValue {
+        match self {
+            Variable::ErrorStatus | Variable::ErrorsOccurred => VariableValue::Errors {
+                safe_start_violation: is_bit_set(response, 0),
+                required_channel_invalid: is_bit_set(response, 1),
+                serial_error: is_bit_set(response, 2),
+                command_timeout: is_bit_set(response, 3),
+                limit_kill_switch: is_bit_set(response, 4),
+                low_vin: is_bit_set(response, 5),
+                high_vin: is_bit_set(response, 6),
+                over_temperature: is_bit_set(response, 7),
+                motor_driver_error: is_bit_set(response, 0),
+                err_line_high: is_bit_set(response, 1),
+            },
+            Variable::SerialErrorsOccurred => VariableValue::SerialErrors {
+                frame: is_bit_set(response, 1),
+                noise: is_bit_set(response, 2),
+                rx_overrun: is_bit_set(response, 3),
+                format: is_bit_set(response, 4),
+                crc: is_bit_set(response, 5),
+            },
+            Variable::LimitStatus => VariableValue::Limits {
+                motor_not_allowed_to_run: is_bit_set(response, 0),
+                temperature_reducing_speed: is_bit_set(response, 1),
+                max_speed: is_bit_set(response, 2),
+                below_starting_speed: is_bit_set(response, 3),
+                speed_limited_acc_dec_brakeduration: is_bit_set(response, 4),
+                rc1_killswitch_active: is_bit_set(response, 5),
+                rc2_killswitch_active: is_bit_set(response, 6),
+                an1_killswitch_active: is_bit_set(response, 7),
+                an2_killswitch_active: is_bit_set(response, 8),
+                usb_killswitch_active: is_bit_set(response, 9),
+            },
+            Variable::ResetFlags => match response {
+                0x04 => VariableValue::ResetSource(ResetSource::NRstPulledLow),
+                0x0c => VariableValue::ResetSource(ResetSource::PowerLow),
+                0x14 => VariableValue::ResetSource(ResetSource::SoftwareReset),
+                0x24 => VariableValue::ResetSource(ResetSource::WatchdogTimer),
+                _ => VariableValue::ResetSource(ResetSource::Unknown),
+            },
+            Variable::RC1Scaled
+            | Variable::RC2Scaled
+            | Variable::AN1Scaled
+            | Variable::AN2Scaled
+            | Variable::TargetSpeed
+            | Variable::Speed => VariableValue::I16(response as i16),
+            Variable::BrakeAmount => match response {
+                0 => VariableValue::BrakeAmount(BrakeAmount::Coasting),
+                32 => VariableValue::BrakeAmount(BrakeAmount::Braking),
+                0xff => VariableValue::BrakeAmount(BrakeAmount::NotAvailable),
+                _ => VariableValue::BrakeAmount(BrakeAmount::Unknown),
+            },
+            _ => VariableValue::U16(response),
+        }
+    }
+}
+
+impl Command {
+    #[allow(unused_variables)]
+    fn get_id(&self) -> u8 {
+        match *self {
+            Command::ExitSafeStart => 0x83,
+            Command::MotorFwd { speed } => 0x85,
+            Command::MotorRev { speed } => 0x86,
+            Command::MotorFwd7bit { speed } => 0x89,
+            Command::MotorRev7bit { speed } => 0x8a,
+            Command::MotorBrake { brake_amount } => 0x92,
+            Command::SetCurrentLimit { value } => 0x91,
+            Command::StopMotor => 0xE0,
+        }
+    }
+}
+
 impl FirmwareVersion {
     /// Converts the raw firmware version into a pair of decimal numbers, (major, minor).
     pub fn get_numerical_version_numbers(&self) -> (u8, u8) {
@@ -472,30 +474,30 @@ impl<T> SimpleMotorController<T> {
         }
     }
 }
+
 impl<T> SimpleMotorController<T>
 where
     T: embedded_hal::blocking::i2c::Write,
 {
     /// Sends a given command to the controller. No response is provided.
     pub fn send_command(&mut self, cmd: Command) -> Result<(), T::Error> {
-        let cmd_id = get_command_id(&cmd);
         match cmd {
             Command::ExitSafeStart | Command::StopMotor => {
-                self.interface.write(self.device_number, &[cmd_id])?
+                self.interface.write(self.device_number, &[cmd.get_id()])?
             }
             Command::MotorFwd { speed } | Command::MotorRev { speed } => self.interface.write(
                 self.device_number,
-                &[cmd_id, (speed % 32) as u8, (speed / 32) as u8],
+                &[cmd.get_id(), (speed % 32) as u8, (speed / 32) as u8],
             )?,
             Command::MotorFwd7bit { speed } | Command::MotorRev7bit { speed } => {
-                self.interface.write(self.device_number, &[cmd_id, speed])?
+                self.interface.write(self.device_number, &[cmd.get_id(), speed])?
             }
             Command::MotorBrake { brake_amount } => self
                 .interface
-                .write(self.device_number, &[cmd_id, brake_amount])?,
+                .write(self.device_number, &[cmd.get_id(), brake_amount])?,
             Command::SetCurrentLimit { value } => self.interface.write(
                 self.device_number,
-                &[cmd_id, (value % 128) as u8, (value / 128) as u8],
+                &[cmd.get_id(), (value % 128) as u8, (value / 128) as u8],
             )?,
         };
         Ok(())
