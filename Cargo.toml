@@ -7,6 +7,8 @@ license = "MIT"
 description = "A driver for the Pololu Simple Motor Controller G2"
 repository = "https://github.com/Karlinde/pololu-smc"
 readme = "README.md"
+keywords = ["pololu", "motor"]
+categories = ["embedded", "no-std", "science::robotics"]
 
 [dependencies]
 embedded-hal = "0.2.4"
