@@ -3,6 +3,10 @@ name = "pololu-smc"
 version = "0.1.0"
 authors = ["Karl Linderhed <git@karlinde.se>"]
 edition = "2018"
+license = "MIT"
+description = "A driver for the Pololu Simple Motor Controller G2"
+repository = "https://github.com/Karlinde/pololu-smc"
+readme = "README.md"
 
 [dependencies]
 embedded-hal = "0.2.4"
