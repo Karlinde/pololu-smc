@@ -16,6 +16,8 @@ use pololu_smc::{SimpleMotorController, Variable, Command};
 
 ...
 
+// Here, "interface" implements some I2C traits from embedded_hal
+// 0x12 is the device number/address
 let mut controller = SimpleMotorController::new(interface, 0x12);
 
 let errors = controller.get_variable(Variable::ErrorStatus)?;
