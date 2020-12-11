@@ -21,7 +21,7 @@
 //! #     type Error = Error;
 //! #     fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> std::result::Result<(), <Self as WriteRead>::Error> {Ok(())}
 //! # }
-//! use pololu_smc::{SimpleMotorController, command::Command};
+//! use pololu_smc::{SimpleMotorController, Command};
 //!
 //! // ...
 //!

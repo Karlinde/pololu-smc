@@ -12,7 +12,7 @@ support for the serial protocol as well.
 
 ## Example
 ```rust
-use pololu_smc::{SimpleMotorController, Variable, Command};
+use pololu_smc::{SimpleMotorController, Command};
 
 ...
 
@@ -20,7 +20,7 @@ use pololu_smc::{SimpleMotorController, Variable, Command};
 // 0x12 is the device number/address
 let mut controller = SimpleMotorController::new(interface, 0x12);
 
-let errors = controller.get_variable(Variable::ErrorStatus)?;
+let errors = controller.get_error_status()?;
 
 controller.send_command(Command::ExitSafeStart)?;
 controller.send_command(Command::MotorFwd{speed: 500})?;
