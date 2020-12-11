@@ -52,8 +52,8 @@
 pub mod command;
 pub mod variable_types;
 
-use command::{Command, FirmwareVersion, MotorLimitKind, MotorLimitResponse};
-use variable_types::{BrakeAmount, Errors, Limits, ResetSource};
+pub use command::{Command as Command, FirmwareVersion as FirmwareVersion, MotorLimitKind as MotorLimitKind, MotorLimitResponse as MotorLimitResponse};
+pub use variable_types::{BrakeAmount as BrakeAmount, Errors as Errors, Limits as Limits, ResetSource as ResetSource};
 
 /// Represents a single physical motor controller.
 ///
