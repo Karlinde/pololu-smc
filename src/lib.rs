@@ -21,31 +21,25 @@
 //! #     type Error = Error;
 //! #     fn write_read(&mut self, _: u8, _: &[u8], _: &mut [u8]) -> std::result::Result<(), <Self as WriteRead>::Error> {Ok(())}
 //! # }
-//! # use pololu_smc::VariableValue;
-//! use pololu_smc::{SimpleMotorController, Variable, Command};
+//! use pololu_smc::{SimpleMotorController, command::Command};
 //!
-//! ...
+//! // ...
 //!
 //! # fn main() -> std::result::Result<(), Error> {
 //! # let mut interface = Test{};
 //! let mut controller = SimpleMotorController::new(interface, 0x12);
 //!
-//! let errors = controller.get_variable(Variable::ErrorStatus)?;
-//! # match errors {
-//! #   VariableValue::Errors{safe_start_violation, required_channel_invalid, serial_error, command_timeout, limit_kill_switch, low_vin, high_vin, over_temperature, motor_driver_error, err_line_high} => {   
-//! #       assert_eq!(safe_start_violation, false);
-//! #       assert_eq!(required_channel_invalid, false);
-//! #       assert_eq!(serial_error, false);
-//! #       assert_eq!(command_timeout, false);
-//! #       assert_eq!(limit_kill_switch, false);
-//! #       assert_eq!(low_vin, false);
-//! #       assert_eq!(high_vin, false);
-//! #       assert_eq!(over_temperature, false);
-//! #       assert_eq!(motor_driver_error, false);
-//! #       assert_eq!(err_line_high, false);
-//! #   },
-//! #   _ => {},
-//! # };
+//! let errors = controller.get_error_status()?;
+//! # assert_eq!(errors.safe_start_violation, false);
+//! # assert_eq!(errors.required_channel_invalid, false);
+//! # assert_eq!(errors.serial_error, false);
+//! # assert_eq!(errors.command_timeout, false);
+//! # assert_eq!(errors.limit_kill_switch, false);
+//! # assert_eq!(errors.low_vin, false);
+//! # assert_eq!(errors.high_vin, false);
+//! # assert_eq!(errors.over_temperature, false);
+//! # assert_eq!(errors.motor_driver_error, false);
+//! # assert_eq!(errors.err_line_high, false);
 //!
 //! controller.send_command(Command::ExitSafeStart)?;
 //! controller.send_command(Command::MotorFwd{speed: 500})?;
@@ -54,6 +48,12 @@
 //!```
 #![warn(missing_docs)]
 #![no_std]
+
+pub mod command;
+pub mod variable_types;
+
+use command::{Command, FirmwareVersion, MotorLimitKind, MotorLimitResponse};
+use variable_types::{BrakeAmount, Errors, Limits, ResetSource};
 
 /// Represents a single physical motor controller.
 ///
@@ -68,11 +68,9 @@ pub struct SimpleMotorController<T> {
     pub device_number: u8,
 }
 
-/// Identifies the variables that can be read from the controller.
-///
-/// Read using [`SimpleMotorController::get_variable`]
+/// Maps the variables that can be read from the controller to their identifiers in the protocol.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Variable {
+enum Variable {
     /// Indicates the errors that are currently stopping the motor.
     /// Returns a value of [`VariableValue::Errors`]
     ErrorStatus = 0,
@@ -170,299 +168,20 @@ pub enum Variable {
     ResetFlags = 127,
 }
 
-/// Reasons for why the controller board was reset
+/// A channel of measurement, either RC or analog
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ResetSource {
-    /// <span style="text-decoration:overline">RST</span> pin was pulled low by external source
-    NRstPulledLow,
-    /// Power reset (VIN got too low or was disconnected)
-    PowerLow,
-    /// Software reset (by firmware upgrade process)
-    SoftwareReset,
-    /// Watchdog timer reset (should never happen; this could indicate a firmware bug)
-    WatchdogTimer,
-    /// Unrecognized value returned from controller
-    Unknown,
+pub enum Channel {
+    Ch1,
+    Ch2,
 }
 
-/// The values that can be returned as the value for [`Variable::BrakeAmount`].
+/// A direction of movement
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum BrakeAmount {
-    /// Motor is coasting.
-    Coasting,
-    /// Motor is braking.
-    Braking,
-    /// Speed is not zero, so no brake amount is reported.
-    NotAvailable,
-    /// Controller returned a value not specified in the offical user's guide.
-    Unknown,
-}
-
-/// Representations of the various types of values of the variables available to be read from the controller.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum VariableValue {
-    /// Error flags that are stopping the motor from running.
-    ///
-    /// The motor can only be driven when all of these flags are `false`
-    Errors {
-        /// Safe start violation.
-        safe_start_violation: bool,
-        /// Required channel invalid.
-        required_channel_invalid: bool,
-        /// Serial error.
-        serial_error: bool,
-        /// Command timeout.
-        command_timeout: bool,
-        /// Limit/kill switch.
-        limit_kill_switch: bool,
-        /// Low VIN.
-        low_vin: bool,
-        /// High VIN.
-        high_vin: bool,
-        /// Over temperature.
-        over_temperature: bool,
-        /// Motor driver error.
-        motor_driver_error: bool,
-        /// ERR line high.
-        err_line_high: bool,
-    },
-    /// Serial errors
-    SerialErrors {
-        /// Frame
-        frame: bool,
-        /// Noise
-        noise: bool,
-        /// RX overrun
-        rx_overrun: bool,
-        /// Format
-        format: bool,
-        /// CRC
-        crc: bool,
-    },
-    /// Flags that indicate things that are currently limiting the motor controller.
-    Limits {
-        /// Motor is not allowed to run due to an error or safe-start violation.
-        motor_not_allowed_to_run: bool,
-        /// Temperate is actively reducing target speed.
-        temperature_reducing_speed: bool,
-        /// Max speed limit is actively reducing target speed (target speed > max speed).
-        max_speed: bool,
-        /// Starting speed limit is actively reducing target speed to zero (target speed < starting speed).
-        below_starting_speed: bool,
-        /// Motor speed is not equal to target speed because of acceleration, deceleration, or brake duration limits.
-        speed_limited_acc_dec_brakeduration: bool,
-        /// RC1 is configured as a limit/kill switch and the switch is active (scaled value >= 1600).
-        rc1_killswitch_active: bool,
-        /// RC2 is configured as a limit/kill switch and the switch is active (scaled value >= 1600).
-        rc2_killswitch_active: bool,
-        /// AN1 is configured as a limit/kill switch and the switch is active (scaled value >= 1600).
-        an1_killswitch_active: bool,
-        /// AN2 is configured as a limit/kill switch and the switch is active (scaled value >= 1600).
-        an2_killswitch_active: bool,
-        /// USB kill switch is active.
-        usb_killswitch_active: bool,
-    },
-    /// Flags indicating the source of the last board reset.
-    /// This variable does not change when the controller is running.
-    ResetSource(ResetSource),
-    /// Indicates if the motor is braking or not.
-    BrakeAmount(BrakeAmount),
-    /// An unsigned 16-bit integer.
-    U16(u16),
-    /// A signed 16-bit integer.
-    I16(i16),
-}
-
-/// Representations of the commands that can be sent to the controller.
-///
-/// These only contain the commands which do not provide any response, which can thus be used in [`SimpleMotorController::send_command`]. There are some additional commands available that <b>do</b> provide a response. These are handled
-/// separately by the methods [`SimpleMotorController::set_motor_limit`] and [`SimpleMotorController::get_firmware_version`].
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Command {
-    /// If safe-start protection is enabled, this command is required before the motor can run.
-    ExitSafeStart,
-    /// Sets the full-resolution motor target speed in the forward direction.
-    MotorFwd {
-        /// Target speed, 0 (motor stopped) to 3200 (full speed).
-        speed: u16,
-    },
-    /// Sets the full-resolution motor target speed in the reverse direction.
-    MotorRev {
-        /// Target speed, 0 (motor stopped) to 3200 (full speed).
-        speed: u16,
-    },
-    /// Sets the low-resolution motor target speed in the forward direction.
-    MotorFwd7bit {
-        /// Target speed, 0 (motor stopped) to 127 (full speed).
-        speed: u8,
-    },
-
-    /// Sets the low-resolution motor target speed in the reverse direction.
-    MotorRev7bit {
-        /// Target speed, 0 (motor stopped) to 127 (full speed).
-        speed: u8,
-    },
-    /// Causes the motor to immediately brake or coast (configured deceleration limits are ignored).
-    MotorBrake {
-        /// The amount of braking action. 0 (coasting) to 32.
-        brake_amount: u8,
-    },
-    /// This command lets you change the hardware current limit temporarily until the next reset.
-    SetCurrentLimit {
-        /// The current limit in internal units. See section 5.2 in the official user's guide
-        /// for instructions on how to convert mA into these internal units.
-        value: u16,
-    },
-    /// Sets the motor target speed to zero, stopping the motor respecting the configured deceleration limits.
-    /// This also makes the controller susceptible to a safe-start violation error is safe-start is enabled.
-    StopMotor,
-}
-
-/// All the various ways to configure a motor limit.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum MotorLimit {
-    /// Max speed, both forward and reverse.
-    MaxSpeed = 0,
-    /// Max acceleration, both forward and reverse.
-    MaxAcc = 1,
-    /// Max deceleration, both forward and reverse.
-    MaxDec = 2,
-    /// Brake duration, both forward and reverse.
-    BrakeDuration = 3,
-    /// Max speed forward.
-    MaxSpeedFwd = 4,
-    /// Max acceleration forward.
-    MaxAccFwd = 5,
-    /// Max deceleration forward.
-    MaxDecFwd = 6,
-    /// Brake duration forward.
-    BrakeDurationFwd = 7,
-    /// Max speed reverse.
-    MaxSpeedRev = 8,
-    /// Max acceleration reverse.
-    MaxAccRev = 9,
-    /// Max deceleration reverse.
-    MaxDecRev = 10,
-    /// Brake duration reverse.
-    BrakeDurationRev = 11,
-}
-
-/// All the responses that the controller can provide after setting the motor limits.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum MotorLimitResponse {
-    /// No problems setting the limit.
-    Ok,
-    /// Unable to set forward limit to the specified value because of hard motor limit settings.
-    UnableForward,
-    /// Unable to set reverse limit to the specified value because of hard motor limit settings.
-    UnableReverse,
-    /// Unable to set forward and reverse limits to the specified value because of hard motor limit settings.
-    Unable,
-    /// The response code has not been specified in the official user's guide.
-    Unknown,
-}
-
-/// Represents the firmware version and product id.
-///
-/// Note that the raw version values in this struct are encoded using BCD (Binary Encoded Decimal).
-/// Use the [`FirmwareVersion::get_numerical_version_numbers`] method to get a tuple of real decimal version numbers.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct FirmwareVersion {
-    /// The product id of this controller's version.
-    pub product_id: u16,
-    /// Major version number, encoded as BCD (binary encoded decimal).
-    pub minor_bcd: u8,
-    /// Minor version number, encoded as BCD (binary encoded decimal).
-    pub major_bcd: u8,
-}
-
-fn is_bit_set(byte: u16, bit: u8) -> bool {
-    byte & (1 << bit) != 0
-}
-
-impl Variable {
-    /// Converts a provided two-byte response from the controller into the proper value type for this variant.
-    pub fn get_value(&self, response: u16) -> VariableValue {
-        match self {
-            Variable::ErrorStatus | Variable::ErrorsOccurred => VariableValue::Errors {
-                safe_start_violation: is_bit_set(response, 0),
-                required_channel_invalid: is_bit_set(response, 1),
-                serial_error: is_bit_set(response, 2),
-                command_timeout: is_bit_set(response, 3),
-                limit_kill_switch: is_bit_set(response, 4),
-                low_vin: is_bit_set(response, 5),
-                high_vin: is_bit_set(response, 6),
-                over_temperature: is_bit_set(response, 7),
-                motor_driver_error: is_bit_set(response, 0),
-                err_line_high: is_bit_set(response, 1),
-            },
-            Variable::SerialErrorsOccurred => VariableValue::SerialErrors {
-                frame: is_bit_set(response, 1),
-                noise: is_bit_set(response, 2),
-                rx_overrun: is_bit_set(response, 3),
-                format: is_bit_set(response, 4),
-                crc: is_bit_set(response, 5),
-            },
-            Variable::LimitStatus => VariableValue::Limits {
-                motor_not_allowed_to_run: is_bit_set(response, 0),
-                temperature_reducing_speed: is_bit_set(response, 1),
-                max_speed: is_bit_set(response, 2),
-                below_starting_speed: is_bit_set(response, 3),
-                speed_limited_acc_dec_brakeduration: is_bit_set(response, 4),
-                rc1_killswitch_active: is_bit_set(response, 5),
-                rc2_killswitch_active: is_bit_set(response, 6),
-                an1_killswitch_active: is_bit_set(response, 7),
-                an2_killswitch_active: is_bit_set(response, 8),
-                usb_killswitch_active: is_bit_set(response, 9),
-            },
-            Variable::ResetFlags => match response {
-                0x04 => VariableValue::ResetSource(ResetSource::NRstPulledLow),
-                0x0c => VariableValue::ResetSource(ResetSource::PowerLow),
-                0x14 => VariableValue::ResetSource(ResetSource::SoftwareReset),
-                0x24 => VariableValue::ResetSource(ResetSource::WatchdogTimer),
-                _ => VariableValue::ResetSource(ResetSource::Unknown),
-            },
-            Variable::RC1Scaled
-            | Variable::RC2Scaled
-            | Variable::AN1Scaled
-            | Variable::AN2Scaled
-            | Variable::TargetSpeed
-            | Variable::Speed => VariableValue::I16(response as i16),
-            Variable::BrakeAmount => match response {
-                0 => VariableValue::BrakeAmount(BrakeAmount::Coasting),
-                32 => VariableValue::BrakeAmount(BrakeAmount::Braking),
-                0xff => VariableValue::BrakeAmount(BrakeAmount::NotAvailable),
-                _ => VariableValue::BrakeAmount(BrakeAmount::Unknown),
-            },
-            _ => VariableValue::U16(response),
-        }
-    }
-}
-
-impl Command {
-    #[allow(unused_variables)]
-    fn get_id(&self) -> u8 {
-        match *self {
-            Command::ExitSafeStart => 0x83,
-            Command::MotorFwd { speed } => 0x85,
-            Command::MotorRev { speed } => 0x86,
-            Command::MotorFwd7bit { speed } => 0x89,
-            Command::MotorRev7bit { speed } => 0x8a,
-            Command::MotorBrake { brake_amount } => 0x92,
-            Command::SetCurrentLimit { value } => 0x91,
-            Command::StopMotor => 0xE0,
-        }
-    }
-}
-
-impl FirmwareVersion {
-    /// Converts the raw firmware version into a pair of decimal numbers, (major, minor).
-    pub fn get_numerical_version_numbers(&self) -> (u8, u8) {
-        (
-            (self.major_bcd & 0xf0) * 10 + (self.major_bcd & 0x0f),
-            (self.minor_bcd & 0xf0) * 10 + (self.minor_bcd & 0x0f),
-        )
-    }
+pub enum Direction {
+    Forward,
+    Reverse,
 }
 
 impl<T> SimpleMotorController<T> {
@@ -489,9 +208,9 @@ where
                 self.device_number,
                 &[cmd.get_id(), (speed % 32) as u8, (speed / 32) as u8],
             )?,
-            Command::MotorFwd7bit { speed } | Command::MotorRev7bit { speed } => {
-                self.interface.write(self.device_number, &[cmd.get_id(), speed])?
-            }
+            Command::MotorFwd7bit { speed } | Command::MotorRev7bit { speed } => self
+                .interface
+                .write(self.device_number, &[cmd.get_id(), speed])?,
             Command::MotorBrake { brake_amount } => self
                 .interface
                 .write(self.device_number, &[cmd.get_id(), brake_amount])?,
@@ -508,20 +227,223 @@ impl<T> SimpleMotorController<T>
 where
     T: embedded_hal::blocking::i2c::WriteRead,
 {
-    /// Sends a request for the value of a certain variable to the controller, and returns
-    /// a user-friendly interpretation of the variable value.
-    pub fn get_variable(&mut self, variable: Variable) -> Result<VariableValue, T::Error> {
+    /// Performs a request for a raw u16 value of a variable.
+    fn get_variable_raw(&mut self, variable: Variable) -> Result<u16, T::Error> {
         let mut buf: [u8; 2] = [0, 0];
         self.interface
             .write_read(self.device_number, &[0xa1, variable as u8], &mut buf)?;
 
-        Ok(variable.get_value(buf[0] as u16 | (buf[1] as u16) << 8))
+        Ok(u16::from(buf[0]) | (u16::from(buf[1])) << 8)
+    }
+
+    /// Returns the errors that are currently stopping the motor
+    pub fn get_error_status(&mut self) -> Result<Errors, T::Error> {
+        Ok(Errors::from(self.get_variable_raw(Variable::ErrorStatus)?))
+    }
+
+    /// Like [`SimpleMotorController::get_error_status`], but only returns the new errors that occurred after the
+    /// last time this variable was read.
+    pub fn get_new_errors(&mut self) -> Result<Errors, T::Error> {
+        Ok(Errors::from(
+            self.get_variable_raw(Variable::ErrorsOccurred)?,
+        ))
+    }
+
+    /// Returns the new serial errors that occurred after the
+    /// last time this variable was read.
+    pub fn get_new_serial_errors(&mut self) -> Result<Errors, T::Error> {
+        Ok(Errors::from(
+            self.get_variable_raw(Variable::SerialErrorsOccurred)?,
+        ))
+    }
+
+    /// Returns the things that are currently limiting the operation of the motor controller in some way.
+    pub fn get_limit_status(&mut self) -> Result<Limits, T::Error> {
+        Ok(Limits::from(self.get_variable_raw(Variable::LimitStatus)?))
+    }
+
+    /// Returns positive pulse width of signal on an RC channel. Unit: 0.25 μs. 0xFFFF if no valid signal detected.
+    pub fn get_rc_unlimited_raw(&mut self, ch: Channel) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::RC1UnlimitedRaw,
+            Channel::Ch2 => Variable::RC2UnlimitedRaw,
+        })?)
+    }
+
+    /// Returns positive pulse width of signal on an RC channel. Unit: 0.25 μs. 0xFFFF if no valid signal detected or if outside error max/error min channel calibration settings.
+    pub fn get_rc_raw(&mut self, ch: Channel) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::RC1Raw,
+            Channel::Ch2 => Variable::RC2Raw,
+        })?)
+    }
+
+    /// Returns scaled version of the RC raw value (based on RC channel calibration settings). 0 if the raw value is 0xFFFF, otherwise from -3200 to 3200.
+    pub fn get_rc_scaled(&mut self, ch: Channel) -> Result<i16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::RC1Scaled,
+            Channel::Ch2 => Variable::RC2Scaled,
+        })? as i16)
+    }
+
+    /// Returns the 12-bit ADC reading of an analog channel. 0 (0 V) to 4095 (3.3 V). 0xFFFF if the input is disconnected.
+    pub fn get_analog_unlimited_raw(&mut self, ch: Channel) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::AN1UnlimitedRaw,
+            Channel::Ch2 => Variable::AN2UnlimitedRaw,
+        })?)
+    }
+
+    /// Returns the 12-bit ADC reading of an analog channel. 0 (0 V) to 4095 (3.3 V). 0xFFFF if the input is disconnected or outside of the error max/error min channel calibration settings.
+    pub fn get_analog_raw(&mut self, ch: Channel) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::AN1Raw,
+            Channel::Ch2 => Variable::AN2Raw,
+        })?)
+    }
+
+    /// Returns the scaled version of the analog raw value (based on analog channel calibration settings). 0 if the raw value is 0xFFFF, otherwise from -3200 to 3200.
+    pub fn get_analog_scaled(&mut self, ch: Channel) -> Result<i16, T::Error> {
+        Ok(self.get_variable_raw(match ch {
+            Channel::Ch1 => Variable::AN1Scaled,
+            Channel::Ch2 => Variable::AN2Scaled,
+        })? as i16)
+    }
+
+    /// Returns motor target speed (-3200 to 3200).
+    pub fn get_target_speed(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::TargetSpeed)?)
+    }
+
+    /// Returns current speed of the motor (-3200 to 3200).
+    pub fn get_speed(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::Speed)?)
+    }
+
+    /// When speed is 0, the returnev value indicates whether the controller is braking or not.
+    pub fn get_brake_amount(&mut self) -> Result<BrakeAmount, T::Error> {
+        Ok(BrakeAmount::from(
+            self.get_variable_raw(Variable::BrakeAmount)?,
+        ))
+    }
+
+    /// Returns measured voltage on the VIN pin, in mV.
+    pub fn get_input_voltage(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::InputVoltage)?)
+    }
+
+    /// Returns board temperature in 0.1 °C, measured at a separate location from [`SimpleMotorController::get_temperature_b`]. Temperatures below freezing are reported as 0. Errors measuring temperature are reported as 3000.
+    pub fn get_temperature_a(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::TemperatureA)?)
+    }
+
+    /// Returns board temperature in 0.1 °C, measured at a separate location from [`SimpleMotorController::get_temperature_a`]. Temperatures below freezing are reported as 0. Errors measuring temperature are reported as 3000.
+    pub fn get_temperature_b(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::TemperatureB)?)
+    }
+
+    /// If there is a valid signal on RC1, this returns the signal period in 0.1ms. Otherwise, this returns value 0.
+    pub fn get_rc_period(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::RCPeriod)?)
+    }
+
+    /// Returns the value of the controller's baud rate register, in seconds per 72 000 000 bits.
+    pub fn get_baud_rate(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::BaudRate)?)
+    }
+
+    /// Returns the two lower bytes of the number of milliseconds that have elapsed since the controller was last reset or powered up.
+    pub fn get_uptime_low(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::UptimeLow)?)
+    }
+
+    /// Returns the two upper bytes of the number of milliseconds that have elapsed since the controller was last reset or powered up.
+    pub fn get_uptime_high(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::UptimeHigh)?)
+    }
+
+    /// Returns the number of milliseconds since the last reset, by combining the results of [`SimpleMotorController::get_uptime_low`] and [`SimpleMotorController::get_uptime_high`].
+    pub fn get_uptime(&mut self) -> Result<u32, T::Error> {
+        Ok((u32::from(self.get_uptime_high()?) << 16) + u32::from(self.get_uptime_low()?))
+    }
+
+    /// Returns maximum allowed motor speed in direction `dir`, 0 to 3200.
+    pub fn get_max_speed(&mut self, dir: Direction) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match dir {
+            Direction::Forward => Variable::MaxSpeedFwd,
+            Direction::Reverse => Variable::MaxSpeedRev,
+        })?)
+    }
+
+    /// Returns maximum allowed motor acceleration in direction `dir`, in Δspeed per update period. Value range 0 to 3200. 0 means no limit.
+    pub fn get_max_acceleration(&mut self, dir: Direction) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match dir {
+            Direction::Forward => Variable::MaxAccFwd,
+            Direction::Reverse => Variable::MaxAccRev,
+        })?)
+    }
+
+    /// Returns maximum allowed motor deceleration from direction `dir`, in Δspeed per update period. Value range 0 to 3200. 0 means no limit.
+    pub fn get_max_deceleration(&mut self, dir: Direction) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match dir {
+            Direction::Forward => Variable::MaxDecFwd,
+            Direction::Reverse => Variable::MaxDecRev,
+        })?)
+    }
+
+    /// Returns time spent braking (at speed 0) in ms when transitioning from direction `dir` to the other.
+    pub fn get_brake_duration(&mut self, dir: Direction) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match dir {
+            Direction::Forward => Variable::BrakeDurationFwd,
+            Direction::Reverse => Variable::BrakeDurationRev,
+        })?)
+    }
+
+    /// Returns minimum allowed motor speed in direction `dir`, 0 to 3200.
+    pub fn get_starting_speed(&mut self, dir: Direction) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(match dir {
+            Direction::Forward => Variable::StartingSpeedFwd,
+            Direction::Reverse => Variable::StartingSpeedRev,
+        })?)
+    }
+
+    /// Returns the hardware current limit currently being used. See section 5.2 in the official user's guide for instructions on how to interpret the units.
+    pub fn get_current_limit(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::CurrentLimit)?)
+    }
+
+    /// Returns raw motor current measurement. See section 5.2 in the official user's guide for instructions on how to interpret the units.
+    pub fn get_raw_current(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::RawCurrent)?)
+    }
+
+    /// Returns a measurement of the motor current in mA.
+    pub fn get_current(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::Current)?)
+    }
+
+    /// Returns the number of consecutive 10ms time periods in which the hardware current limiting has activated.
+    pub fn get_current_limiting_consecutive_count(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::CurrentLimitingConsecutiveCount)?)
+    }
+
+    /// Returns the number of 10 ms time periods in which the hardware current limit has activated since the last time 
+    /// this variable was read.
+    pub fn get_current_limiting_occurence_count(&mut self) -> Result<u16, T::Error> {
+        Ok(self.get_variable_raw(Variable::CurrentLimitingOccurenceCount)?)
+    }
+
+    /// Indicates the source of the last board reset.
+    pub fn get_reset_flags(&mut self) -> Result<ResetSource, T::Error> {
+        Ok(ResetSource::from(
+            self.get_variable_raw(Variable::ResetFlags)?,
+        ))
     }
 
     /// Sends a command to temporarily set a certain motor limit to some value, until the board is reset.
     pub fn set_motor_limit(
         &mut self,
-        limit: MotorLimit,
+        limit: MotorLimitKind,
         value: u16,
     ) -> Result<MotorLimitResponse, T::Error> {
         let mut buf: [u8; 1] = [0];
@@ -547,7 +469,7 @@ where
             .write_read(self.device_number, &[0xc2], &mut buf)?;
 
         Ok(FirmwareVersion {
-            product_id: buf[0] as u16 + ((buf[1] as u16) << 8),
+            product_id: u16::from(buf[0]) + ((u16::from(buf[1])) << 8),
             major_bcd: buf[2],
             minor_bcd: buf[3],
         })
