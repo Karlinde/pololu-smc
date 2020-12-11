@@ -7,14 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- ## [Unreleased] -->
 
-## [0.2.0] - 2020-12-11
+## 0.2.1 - 2020-12-11
+
+### Fixed
+
+ - Updated example in readme.
+
+## 0.2.0 - 2020-12-11
 
 ### Changed
 
  - Redesign API to use explicit methods instead of requiring the user to pattern-match enums for every variable call.
  - Modularize the code a bit.
 
-## [0.1.0] - 2020-12-09
+## 0.1.0 - 2020-12-09
 
 ### Added
 
